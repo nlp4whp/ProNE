@@ -13,8 +13,6 @@ from sklearn.utils.extmath import randomized_svd
 import argparse
 import time
 
-_MAX_NODE_CNT = int(2e+6)
-
 
 class ProNE():
     def __init__(self, graph_file, emb_file1, emb_file2, dimension, node_number=None):
@@ -22,7 +20,7 @@ class ProNE():
         self.emb1 = emb_file1
         self.emb2 = emb_file2
         self.dimension = dimension
-        self.node_number = _MAX_NODE_CNT if node_number is None else node_number
+        self.node_number = node_number  # if None, try scan `graph_file` to get `max_id + 1`
 
         """
         NOTE 这部分需要加载二分图, 构建networkx.Graph(), 会耗费大量内存
@@ -39,8 +37,15 @@ class ProNE():
         print(matrix0.shape)
         """
 
-        # 邻接矩阵matrix0可以分步完成, 只需事先知道节点总数
+        # 根据二分图构建邻接矩阵matrix0
         print(f"| Initial graph and matrix0 ... |")
+        if self.node_number is None:
+            print(f"\t>> unknown `node_number`, scan {graph_file} to find max node_id")
+            max_id = -1
+            with open(graph_file) as fr:
+                for line in fr:
+                    max_id = max(max_id, *[int(i) for i in line.rstrip().split()])
+                self.node_number = max_id + 1
         matrix0 = scipy.sparse.lil_matrix((self.node_number, self.node_number))
         with open(graph_file) as fr:
             for li, line in enumerate(fr):
@@ -171,8 +176,8 @@ def parse_args():
                         help='Output path of sparse matrix')
     parser.add_argument('-dimension', type=int, default=128,
                         help='Number of dimensions. Default is 128.')
-    parser.add_argument('-node_num', type=int, default=519491,
-                        help='Number of nodes. Default is 519491.')
+    parser.add_argument('-node_num', type=int, default=None,
+                        help='Number of nodes. `Max_node_id + 1`')
     parser.add_argument('-step', type=int, default=10,
                         help='Step of recursion. Default is 10.')
     parser.add_argument('-theta', type=float, default=0.5,
@@ -217,7 +222,6 @@ if __name__ == '__main__':
     -emb1 emb/line_sparse.adj.emb \
     -emb2 emb/line_spectral.adj.emb \
     -dimension 128 \
-    -node_num 519492 \
     -step 10 \
     -theta 0.5 \
     -mu 0.2
