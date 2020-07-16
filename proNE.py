@@ -224,9 +224,10 @@ def main():
 if __name__ == '__main__':
     """
     python proNE.py \
-    -graph data/line.adj.ungraph \
-    -emb1 emb/line_sparse.adj.emb \
-    -emb2 emb/line_spectral.adj.emb \
+    -graph data/gnn.adj.ungraph \
+    -emb1 emb/gnn_sparse.adj.emb \
+    -emb2 emb/gnn_spectral.adj.emb \
+    -smat emb/smat.npz \
     -dimension 128 \
     -step 10 \
     -theta 0.5 \
