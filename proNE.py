@@ -38,10 +38,10 @@ class ProNE():
         print(matrix0.shape)
         """
 
-        if not os.path.isdir(os.path.split(self.emb_file1)[0]):
-            os.makedirs(os.path.split(self.emb_file1)[0])
-        if not os.path.isdir(os.path.split(self.emb_file2)[0]):
-            os.makedirs(os.path.split(self.emb_file2)[0])
+        if not os.path.isdir(os.path.split(self.emb1)[0]):
+            os.makedirs(os.path.split(self.emb1)[0])
+        if not os.path.isdir(os.path.split(self.emb2)[0]):
+            os.makedirs(os.path.split(self.emb2)[0])
 
         # 根据二分图构建邻接矩阵matrix0
         print(f"| Initial graph and matrix0 ... |")
