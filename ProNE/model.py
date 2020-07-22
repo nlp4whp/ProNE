@@ -13,13 +13,59 @@ from sklearn.utils.extmath import randomized_svd
 
 import argparse
 import time
+from contextlib import contextmanager
+
+
+@contextmanager
+def cost(note=''):
+    print(f"{note} Start")
+    start = time.time()
+    yield
+    print(f"{note} OVER => cost: {time.time() - start:.4f}sec")
 
 
 class ProNE():
-    def __init__(self, graph_file, emb_file1, emb_file2, dimension, node_number=None):
+
+    """
+    Tutorial:
+        1. build model by:
+            ```
+            from ProNE.model import ProNE
+            from ProNE.model import save_smat
+            from ProNE.model import save_embedding
+
+            model = ProNE(graph_file, dimension, node_number=None)
+                :graph_file:   bi-graph file, saved adjacency like: 'node_i node_j'
+                :dimension:    embedding dimension
+                :node_number:  node count of graph, if None, model need scan `graph_file` to find it
+            save_smat(smat_fn, model.model0)
+            ```
+        2. Embedding by factorization
+            ```
+            features_matrix = model.pre_factorization(model.matrix0, model.matrix0)
+            save_embedding(emb_fn1, features_matrix)
+            ```
+        3. Embedding by chebyshev_gaussian
+            ```
+            embeddings_matrix = model.chebyshev_gaussian(
+                                        A=model.matrix0,
+                                        a=features_matrix,
+                                        order=step,
+                                        mu=mu,
+                                        s=theta)
+            save_embedding(emb_fn2, embeddings_matrix)
+            ```
+    Also:
+        you can run all steps together by:
+            ```
+            from ProNE.model import run
+            run(graph_file, emb_fn1, emb_fn2, smat_fn, node_num=None,
+                dim=100, step=10, theta=0.5, mu=0.2)
+            ```
+    """
+
+    def __init__(self, graph_file, dimension, node_number=None):
         self.graph = graph_file
-        self.emb1 = emb_file1
-        self.emb2 = emb_file2
         self.dimension = dimension
         self.node_number = node_number  # if None, try scan `graph_file` to get `max_id + 1`
 
@@ -38,12 +84,7 @@ class ProNE():
         print(matrix0.shape)
         """
 
-        if not os.path.isdir(os.path.split(self.emb1)[0]):
-            os.makedirs(os.path.split(self.emb1)[0])
-        if not os.path.isdir(os.path.split(self.emb2)[0]):
-            os.makedirs(os.path.split(self.emb2)[0])
-
-        # 根据二分图构建邻接矩阵matrix0
+        # Build Adjacency matrix0 by bi-graph `graph_file`
         print(f"| Initial graph and matrix0 ... |")
         if self.node_number is None:
             print(f"\t>> unknown `node_number`, scan {graph_file} to find max node_id")
@@ -71,20 +112,17 @@ class ProNE():
         print(f"| Got matrix0.shape({self.matrix0.shape}) ... |")
 
     def get_embedding_rand(self, matrix):
-        # Sparse randomized tSVD for fast embedding
-        t1 = time.time()
+        """ Sparse randomized tSVD for fast embedding """
         ln = matrix.shape[0]
         smat = scipy.sparse.csc_matrix(matrix)  # convert to sparse CSC format
         print('svd sparse', smat.data.shape[0] * 1.0 / ln ** 2)
         U, Sigma, VT = randomized_svd(smat, n_components=self.dimension, n_iter=5, random_state=None)
         U = U * np.sqrt(Sigma)
         U = preprocessing.normalize(U, "l2")
-        print('sparsesvd time', time.time() - t1)
         return U
 
     def get_embedding_dense(self, matrix, dimension):
-        # get dense embedding via SVD
-        t1 = time.time()
+        """ get dense embedding via SVD """
         U, s, Vh = linalg.svd(matrix, full_matrices=False, check_finite=False, overwrite_a=True)
         U = np.array(U)
         U = U[:, :dimension]
@@ -92,12 +130,10 @@ class ProNE():
         s = np.sqrt(s)
         U = U * s
         U = preprocessing.normalize(U, "l2")
-        print('densesvd time', time.time() - t1)
         return U
 
     def pre_factorization(self, tran, mask):
-        # Network Embedding as Sparse Matrix Factorization
-        t1 = time.time()
+        """ Network Embedding as Sparse Matrix Factorization """
         l1 = 0.75
         C1 = preprocessing.normalize(tran, "l1")
         neg = np.array(C1.sum(axis=0))[0] ** l1
@@ -106,7 +142,6 @@ class ProNE():
 
         neg = scipy.sparse.diags(neg, format="csr")
         neg = mask.dot(neg)
-        print("neg", time.time() - t1)
 
         C1.data[C1.data <= 0] = 1
         neg.data[neg.data <= 0] = 1
@@ -120,9 +155,8 @@ class ProNE():
         return features_matrix
 
     def chebyshev_gaussian(self, A, a, order=10, mu=0.5, s=0.5):
-        # NE Enhancement via Spectral Propagation
+        """ NE Enhancement via Spectral Propagation """
         print('Chebyshev Series -----------------')
-        t1 = time.time()
 
         if order == 1:
             return a
@@ -150,87 +184,59 @@ class ProNE():
             Lx0 = Lx1
             Lx1 = Lx2
             del Lx2
-            print('Bessell time', i, time.time() - t1)
         mm = A.dot(a - conv)
         emb = self.get_embedding_dense(mm, self.dimension)
         return emb
 
 
 def save_embedding(emb_file, features):
-    # save node embedding into emb_file with word2vec format
-    f_emb = open(emb_file, 'w')
-    f_emb.write(str(len(features)) + " " + str(features.shape[1]) + "\n")
-    for i in range(len(features)):
-        s = str(i) + " " + " ".join(str(f) for f in features[i].tolist())
-        f_emb.write(s + "\n")
-    f_emb.close()
+    """ save node embedding into `emb_file` with word2vec format """
+    with open(emb_file, 'w') as f_emb:
+        f_emb.write(str(len(features)) + " " + str(features.shape[1]) + "\n")
+        for i in range(len(features)):
+            s = str(i) + " " + " ".join(str(f) for f in features[i].tolist())
+            f_emb.write(s + "\n")
 
 
-def save_smat(smat_file, smat):
-    scipy.sparse.save_npz(smat_file, smat)
+def save_smat(smat_fn, smat):
+    """ save Adjacency into sparse matrix """
+    scipy.sparse.save_npz(smat_fn, smat)
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Run ProNE.")
-    parser.add_argument('-graph', nargs='?', default='data/blogcatalog.ungraph',
-                        help='Graph path')
-    parser.add_argument('-emb1', nargs='?', default='emb/blogcatalog.emb',
-                        help='Output path of sparse embeddings')
-    parser.add_argument('-emb2', nargs='?', default='emb/blogcatalog_enhanced.emb',
-                        help='Output path of enhanced embeddings')
-    parser.add_argument('-smat', default='emb/smat.npz',
-                        help='Output path of sparse matrix')
-    parser.add_argument('-dimension', type=int, default=128,
-                        help='Number of dimensions. Default is 128.')
-    parser.add_argument('-node_num', type=int, default=None,
-                        help='Number of nodes. `Max_node_id + 1`')
-    parser.add_argument('-step', type=int, default=10,
-                        help='Step of recursion. Default is 10.')
-    parser.add_argument('-theta', type=float, default=0.5,
-                        help='Parameter of ProNE. Default is 0.5.')
-    parser.add_argument('-mu', type=float, default=0.2,
-                        help='Parameter of ProNE. Default is 0.2')
-    return parser.parse_args()
-
-
-def main():
-    args = parse_args()
-
-    print(f"| Create ProNE model |")
-    t_0 = time.time()
-    model = ProNE(args.graph, args.emb1, args.emb2, args.dimension, node_number=args.node_num)
-    t_1 = time.time()
-    print(f"| Create ProNE model; cost {t_1 - t_0} |")
-    save_smat(smat_file=args.smat, smat=model.matrix0)
-
-    print(f"| First factorization |")
-    features_matrix = model.pre_factorization(model.matrix0, model.matrix0)
-    t_2 = time.time()
-    print(f"| First factorization; cost {t_2 - t_1} |")
-    save_embedding(args.emb1, features_matrix)
-
-    print(f"| Final chebyshev_gaussian; |")
-    embeddings_matrix = model.chebyshev_gaussian(model.matrix0, features_matrix, args.step, args.mu, args.theta)
-    t_3 = time.time()
-    print(f"| Final chebyshev_gaussian; cost {t_3 - t_2} |")
-    save_embedding(args.emb2, embeddings_matrix)
-
-    print('---', model.node_number)
-    print('total time', t_3 - t_0)
-    print('sparse NE time', t_2 - t_1)
-    print('spectral Pro time', t_3 - t_2)
-
-
-if __name__ == '__main__':
+def run(graph_file, emb_fn1, emb_fn2, smat_fn, node_num=None,
+        dim=100, step=10, theta=0.5, mu=0.2):
     """
-    python proNE.py \
-    -graph data/gnn.adj.ungraph \
-    -emb1 emb/gnn_sparse.adj.emb \
-    -emb2 emb/gnn_spectral.adj.emb \
-    -smat emb/smat.npz \
-    -dimension 128 \
-    -step 10 \
-    -theta 0.5 \
-    -mu 0.2
+    graph_file: bi-graph file, saved adjacency like: 'node_i node_j\nnode_i node_k'
+    emb_fn1: embedding_file1 got by factorization
+    emb_fn2: embedding_file2 got by chebyshev_gaussian
+    smat_fn: sparse matrix file
+    dim: ProNE embedding dimension
+    step: iteration times
+    theta: params of chebyshev_gaussian
+    mu: params of chebyshev_gaussian
     """
-    main()
+
+    # check whether matrix file root has been created
+    if not os.path.isdir(os.path.split(emb_fn1)[0]):
+        os.makedirs(os.path.split(emb_fn1)[0])
+    if not os.path.isdir(os.path.split(emb_fn2)[0]):
+        os.makedirs(os.path.split(emb_fn2)[0])
+    if not os.path.isdir(os.path.split(smat_fn)[0]):
+        os.makedirs(os.path.split(smat_fn)[0])
+
+    with cost(f"| Create ProNE model |"):
+        model = ProNE(graph_file, dim, node_number=node_num)
+        save_smat(smat_fn, model.matrix0)
+
+    with cost(f"| First factorization |"):
+        features_matrix = model.pre_factorization(model.matrix0, model.matrix0)
+        save_embedding(emb_fn1, features_matrix)
+
+    with cost(f"| Final chebyshev_gaussian; |"):
+        embeddings_matrix = model.chebyshev_gaussian(
+                                        A=model.matrix0,
+                                        a=features_matrix,
+                                        order=step,
+                                        mu=mu,
+                                        s=theta)
+        save_embedding(emb_fn2, embeddings_matrix)

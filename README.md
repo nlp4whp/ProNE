@@ -109,3 +109,25 @@ If you find *ProNE* is useful for your research, please consider citing our pape
   url       = {https://doi.org/10.24963/ijcai.2019/594},
 }
 ```
+
+## Build, Upload, Install
+
+``` shell
+## build whl
+python setup.py bdist_wheel
+# or
+./build.sh
+
+## upload
+twine upload *.whl -r {pypirc-index-server}
+# or
+twine upload *.whl --username {htpasswd-username} --repository-url {pypirc-index-server-repository-url}
+
+## install
+pip install *.whl
+# or
+pip install ProNE -i http://{ip}:{port} --trusted-host {ip}
+
+## test if sucessed
+python -c "from ProNE.model import ProNE;help(ProNE)"
+```
