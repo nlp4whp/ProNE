@@ -129,5 +129,5 @@ pip install *.whl
 pip install ProNE -i http://{ip}:{port} --trusted-host {ip}
 
 ## test if sucessed
-python -c "from ProNE.model import ProNE;help(ProNE)"
+python -c "from ProNE import ProNE;help(ProNE)"
 ```

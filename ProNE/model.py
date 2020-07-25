@@ -11,7 +11,6 @@ from scipy.special import iv
 from sklearn import preprocessing
 from sklearn.utils.extmath import randomized_svd
 
-import argparse
 import time
 from contextlib import contextmanager
 
@@ -30,9 +29,9 @@ class ProNE():
     Tutorial:
         1. build model by:
             ```
-            from ProNE.model import ProNE
-            from ProNE.model import save_smat
-            from ProNE.model import save_embedding
+            from ProNE import ProNE
+            from ProNE import save_smat
+            from ProNE import save_embedding
 
             model = ProNE(graph_file, dimension, node_number=None)
                 :graph_file:   bi-graph file, saved adjacency like: 'node_i node_j'
@@ -58,7 +57,7 @@ class ProNE():
     Also:
         you can run all steps together by:
             ```
-            from ProNE.model import run
+            from ProNE import run
             run(graph_file, emb_fn1, emb_fn2, smat_fn, node_num=None,
                 dim=100, step=10, theta=0.5, mu=0.2)
             ```
@@ -85,7 +84,7 @@ class ProNE():
         """
 
         # Build Adjacency matrix0 by bi-graph `graph_file`
-        print(f"| Initial graph and matrix0 ... |")
+        print("| Initial graph and matrix0 ... |")
         if self.node_number is None:
             print(f"\t>> unknown `node_number`, scan {graph_file} to find max node_id")
             max_id = -1
@@ -216,23 +215,27 @@ def run(graph_file, emb_fn1, emb_fn2, smat_fn, node_num=None,
     mu: params of chebyshev_gaussian
     """
 
-    # check whether matrix file root has been created
-    if not os.path.isdir(os.path.split(emb_fn1)[0]):
-        os.makedirs(os.path.split(emb_fn1)[0])
-    if not os.path.isdir(os.path.split(emb_fn2)[0]):
-        os.makedirs(os.path.split(emb_fn2)[0])
-    if not os.path.isdir(os.path.split(smat_fn)[0]):
-        os.makedirs(os.path.split(smat_fn)[0])
+    def _check_path(fname):
+        path, _ = os.path.split(fname)
+        if path == '':
+            return
+        if not os.path.isdir(path):
+            os.makedirs(path)
 
-    with cost(f"| Create ProNE model |"):
+    # check whether matrix file root has been created
+    _check_path(emb_fn1)
+    _check_path(emb_fn2)
+    _check_path(smat_fn)
+
+    with cost("| Create ProNE model |"):
         model = ProNE(graph_file, dim, node_number=node_num)
         save_smat(smat_fn, model.matrix0)
 
-    with cost(f"| First factorization |"):
+    with cost("| First factorization |"):
         features_matrix = model.pre_factorization(model.matrix0, model.matrix0)
         save_embedding(emb_fn1, features_matrix)
 
-    with cost(f"| Final chebyshev_gaussian; |"):
+    with cost("| Final chebyshev_gaussian; |"):
         embeddings_matrix = model.chebyshev_gaussian(
                                         A=model.matrix0,
                                         a=features_matrix,
