@@ -83,6 +83,14 @@ class ProNE():
         print(matrix0.shape)
         """
 
+        self._build_matrix0(graph_file)
+
+    def _build_matrix0(self, graph_file):
+        """
+        build adjacency by graph file, support both formats as:
+            - '1 2\n1 3\n2 4\n2 7'
+            - '1 2 3\n2 4 7'
+        """
         # Build Adjacency matrix0 by bi-graph `graph_file`
         print("| Initial graph and matrix0 ... |")
         if self.node_number is None:
@@ -92,18 +100,20 @@ class ProNE():
                 for line in fr:
                     max_id = max(max_id, *[int(i) for i in line.rstrip().split()])
                 self.node_number = max_id + 1
+
         matrix0 = scipy.sparse.lil_matrix((self.node_number, self.node_number))
         with open(graph_file) as fr:
             for li, line in enumerate(fr):
                 if li % 1000_0000 == 0:
                     print(f"- line: {li} ... ")
                 try:
-                    src, tgt = map(int, line.rstrip().split())
+                    src, *tgt_list = map(int, line.rstrip().split())
                 except Exception as e:
                     raise Exception(f"err line: {li}; {e}")
-                if src != tgt:
-                    matrix0[src, tgt] = 1
-                    matrix0[tgt, src] = 1
+                for tgt in tgt_list:
+                    if src != tgt:
+                        matrix0[src, tgt] = 1
+                        matrix0[tgt, src] = 1
 
         if matrix0.shape[0] != self.node_number:
             raise Exception(f"Unexcept node count: {matrix0.shape[0]}; it should be {self.node_number}")
