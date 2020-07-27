@@ -130,4 +130,6 @@ pip install ProNE -i http://{ip}:{port} --trusted-host {ip}
 
 ## test if sucessed
 python -c "from ProNE import ProNE;help(ProNE)"
+cd test
+python test_prone.py
 ```

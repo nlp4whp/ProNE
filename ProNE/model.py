@@ -33,16 +33,16 @@ class ProNE():
             from ProNE import save_smat
             from ProNE import save_embedding
 
-            model = ProNE(graph_file, dimension, node_number=None)
-                :graph_file:   bi-graph file, saved adjacency like: 'node_i node_j'
+            model = ProNE(graph_or_csr_file, dimension, node_number=None)
+                :graph_or_csr_file:   CSR or TXT graph file, both txt or CSR are supported
                 :dimension:    embedding dimension
-                :node_number:  node count of graph, if None, model need scan `graph_file` to find it
-            save_smat(smat_fn, model.model0)
+                :node_number:  node count of graph, if None, model will scan `txt` or `csr` to know
+            save_smat(smat_file, model.model0)
             ```
         2. Embedding by factorization
             ```
             features_matrix = model.pre_factorization(model.matrix0, model.matrix0)
-            save_embedding(emb_fn1, features_matrix)
+            save_embedding(emb_file1, features_matrix)
             ```
         3. Embedding by chebyshev_gaussian
             ```
@@ -52,19 +52,20 @@ class ProNE():
                                         order=step,
                                         mu=mu,
                                         s=theta)
-            save_embedding(emb_fn2, embeddings_matrix)
+            save_embedding(emb_file2, embeddings_matrix)
             ```
     Also:
         you can run all steps together by:
             ```
             from ProNE import run
-            run(graph_file, emb_fn1, emb_fn2, smat_fn, node_num=None,
+            run(graph_or_csr_file, emb_file1, emb_file2, smat_file, node_num=None,
                 dim=100, step=10, theta=0.5, mu=0.2)
             ```
+    Note:
+        you can also load graph from CSR sparse matrix file, CSR file must has suffix `.npz`
     """
 
-    def __init__(self, graph_file, dimension, node_number=None):
-        self.graph = graph_file
+    def __init__(self, graph_or_csr_file, dimension, node_number=None):
         self.dimension = dimension
         self.node_number = node_number  # if None, try scan `graph_file` to get `max_id + 1`
 
@@ -82,8 +83,10 @@ class ProNE():
         self.matrix0 = scipy.sparse.csr_matrix(matrix0)
         print(matrix0.shape)
         """
-
-        self._build_matrix0(graph_file)
+        if graph_or_csr_file.endswith('.npz'):
+            self._load_matrix0(graph_or_csr_file)
+        else:
+            self._build_matrix0(graph_or_csr_file)
 
     def _build_matrix0(self, graph_file):
         """
@@ -91,7 +94,6 @@ class ProNE():
             - '1 2\n1 3\n2 4\n2 7'
             - '1 2 3\n2 4 7'
         """
-        # Build Adjacency matrix0 by bi-graph `graph_file`
         print("| Initial graph and matrix0 ... |")
         if self.node_number is None:
             print(f"\t>> unknown `node_number`, scan {graph_file} to find max node_id")
@@ -119,6 +121,13 @@ class ProNE():
             raise Exception(f"Unexcept node count: {matrix0.shape[0]}; it should be {self.node_number}")
         self.matrix0 = scipy.sparse.csr_matrix(matrix0)
         print(f"| Got matrix0.shape({self.matrix0.shape}) ... |")
+
+    def _load_matrix0(self, smat_file):
+        """
+        just load CSR matrix file
+        """
+        self.matrix0 = scipy.sparse.load_npz(smat_file)
+        self.node_number = self.matrix0.shape[0]
 
     def get_embedding_rand(self, matrix):
         """ Sparse randomized tSVD for fast embedding """
@@ -207,18 +216,21 @@ def save_embedding(emb_file, features):
             f_emb.write(s + "\n")
 
 
-def save_smat(smat_fn, smat):
+def save_smat(smat_file, smat):
     """ save Adjacency into sparse matrix """
-    scipy.sparse.save_npz(smat_fn, smat)
+    try:
+        scipy.sparse.save_npz(smat_file, smat)
+    except Exception as e:
+        print(Exception(f"Save CSR matrix0 ERROR: {e}"))
 
 
-def run(graph_file, emb_fn1, emb_fn2, smat_fn, node_num=None,
+def run(graph_file, emb_file1, emb_file2, smat_file=None, node_num=None,
         dim=100, step=10, theta=0.5, mu=0.2):
     """
     graph_file: bi-graph file, saved adjacency like: 'node_i node_j\nnode_i node_k'
-    emb_fn1: embedding_file1 got by factorization
-    emb_fn2: embedding_file2 got by chebyshev_gaussian
-    smat_fn: sparse matrix file
+    emb_file1: embedding_file1 got by factorization
+    emb_file2: embedding_file2 got by chebyshev_gaussian
+    smat_file: sparse matrix file
     dim: ProNE embedding dimension
     step: iteration times
     theta: params of chebyshev_gaussian
@@ -226,6 +238,8 @@ def run(graph_file, emb_fn1, emb_fn2, smat_fn, node_num=None,
     """
 
     def _check_path(fname):
+        if fname is None:
+            return
         path, _ = os.path.split(fname)
         if path == '':
             return
@@ -233,17 +247,18 @@ def run(graph_file, emb_fn1, emb_fn2, smat_fn, node_num=None,
             os.makedirs(path)
 
     # check whether matrix file root has been created
-    _check_path(emb_fn1)
-    _check_path(emb_fn2)
-    _check_path(smat_fn)
+    _check_path(emb_file1)
+    _check_path(emb_file2)
+    _check_path(smat_file)
 
     with cost("| Create ProNE model |"):
         model = ProNE(graph_file, dim, node_number=node_num)
-        save_smat(smat_fn, model.matrix0)
+        if smat_file is not None:
+            save_smat(smat_file, model.matrix0)
 
     with cost("| First factorization |"):
         features_matrix = model.pre_factorization(model.matrix0, model.matrix0)
-        save_embedding(emb_fn1, features_matrix)
+        save_embedding(emb_file1, features_matrix)
 
     with cost("| Final chebyshev_gaussian; |"):
         embeddings_matrix = model.chebyshev_gaussian(
@@ -252,4 +267,4 @@ def run(graph_file, emb_fn1, emb_fn2, smat_fn, node_num=None,
                                         order=step,
                                         mu=mu,
                                         s=theta)
-        save_embedding(emb_fn2, embeddings_matrix)
+        save_embedding(emb_file2, embeddings_matrix)

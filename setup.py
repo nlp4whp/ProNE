@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(name='ProNE',
-      version='1.0.2',
+      version='1.0.3',
       description="Graph Embedding Algorithms: ProNE",
       author="THUDN",
       maintainer="nlp4whp",
