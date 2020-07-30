@@ -4,7 +4,6 @@ import numpy as np
 # import networkx as nx
 
 import scipy.sparse
-import scipy.sparse as sp
 from scipy import linalg
 from scipy.special import iv
 
@@ -27,50 +26,59 @@ class ProNE():
 
     """
     Tutorial:
-        1. build model by:
+        1. Build model by:
             ```
             from ProNE import ProNE
-            from ProNE import save_smat
-            from ProNE import save_embedding
+            model = ProNE(graph_or_csr_file, node_number=None)
+                :graph_or_csr_file: graph file, now we support three types of graph:
+                        1. graph.txt    '1 2\n1 3\n2 3'
+                        2. graph.txt    '1 2 3\n2 3'
+                        3. graph.npz
+                :node_number:       node count of graph, if None, model will get it by:
+                        scan .txt file to get `max_node_num - min_node_num + 1`
+                        get matrix0.shape[0] from .npz file
 
-            model = ProNE(graph_or_csr_file, dimension, node_number=None)
-                :graph_or_csr_file:   CSR or TXT graph file, both txt or CSR are supported
-                :dimension:    embedding dimension
-                :node_number:  node count of graph, if None, model will scan `txt` or `csr` to know
-            save_smat(smat_file, model.model0)
+            # BTW: you can save it by:
+                ```
+                from ProNE import save_smat
+                save_smat(csr_file, model.matrix0)
+                ```
             ```
-        2. Embedding by factorization
+        2. Train model by:
             ```
-            features_matrix = model.pre_factorization(model.matrix0, model.matrix0)
-            save_embedding(emb_file1, features_matrix)
-            ```
-        3. Embedding by chebyshev_gaussian
-            ```
-            embeddings_matrix = model.chebyshev_gaussian(
-                                        A=model.matrix0,
-                                        a=features_matrix,
-                                        order=step,
-                                        mu=mu,
-                                        s=theta)
-            save_embedding(emb_file2, embeddings_matrix)
-            ```
-    Also:
-        you can run all steps together by:
-            ```
-            from ProNE import run
-            run(graph_or_csr_file, emb_file1, emb_file2, smat_file, node_num=None,
-                dim=100, step=10, theta=0.5, mu=0.2)
+            emb1, emb2 = model.train(dimension,
+                                     step=10,
+                                     theta=0.5,
+                                     mu=0.2,
+                                     emb_file1=None,
+                                     emb_file2=None,
+                                     smat_file=None)
+                :dimension: embedding dimension
+                :step:      iteration times
+                :theta:     params of chebyshev_gaussian
+                :mu:        params of chebyshev_gaussian
+                :emb_file1: if None, emb1 (by RSVD) will not be saved
+                :emb_file2: if None, emb2 (by chebyshev) will not be saved
+                :smat_file: if None, CSR (model.matrix0) will not be saved
+
+            # BTW:  you can also save emb1 and emb2 by:
+                ```
+                from ProNE import save_embedding
+                save_embedding(emb_file1, emb1)
+                save_embedding(emb_file2, emb1)
+                ```
             ```
     Note:
-        you can also load graph from CSR sparse matrix file, CSR file must has suffix `.npz`
+        you can also load graph from CSR sparse matrix file, CSR file must has suffix `.npz`, like:
+            ```
+            model = ProNE('smat.npz', dimension, node_number=None)
+            ```
     """
 
-    def __init__(self, graph_or_csr_file, dimension, node_number=None):
-        self.dimension = dimension
+    def __init__(self, graph_or_csr_file, node_number=None):
         self.node_number = node_number  # if None, try scan `graph_file` to get `max_id + 1`
-
         """
-        NOTE 这部分需要加载二分图, 构建networkx.Graph(), 会耗费大量内存
+        NOTE 加载二分图时, 构建networkx.Graph()会耗费大量内存, 因此完全改写为通过邻接图加载
         self.G = nx.read_edgelist(self.graph, nodetype=int, create_using=nx.DiGraph())
         self.G = self.G.to_undirected()
         self.node_number = self.G.number_of_nodes()
@@ -84,11 +92,11 @@ class ProNE():
         print(matrix0.shape)
         """
         if graph_or_csr_file.endswith('.npz'):
-            self._load_matrix0(graph_or_csr_file)
+            self._load_csr_mat(graph_or_csr_file)
         else:
-            self._build_matrix0(graph_or_csr_file)
+            self._build_csr_mat(graph_or_csr_file)
 
-    def _build_matrix0(self, graph_file):
+    def _build_csr_mat(self, graph_file):
         """
         build adjacency by graph file, support both formats as:
             - '1 2\n1 3\n2 4\n2 7'
@@ -97,11 +105,13 @@ class ProNE():
         print("| Initial graph and matrix0 ... |")
         if self.node_number is None:
             print(f"\t>> unknown `node_number`, scan {graph_file} to find max node_id")
-            max_id = -1
+            max_id = 1
+            min_id = 1
             with open(graph_file) as fr:
                 for line in fr:
                     max_id = max(max_id, *[int(i) for i in line.rstrip().split()])
-                self.node_number = max_id + 1
+                    min_id = min(min_id, *[int(i) for i in line.rstrip().split()])
+                self.node_number = max_id - min_id + 1
 
         matrix0 = scipy.sparse.lil_matrix((self.node_number, self.node_number))
         with open(graph_file) as fr:
@@ -120,14 +130,42 @@ class ProNE():
         if matrix0.shape[0] != self.node_number:
             raise Exception(f"Unexcept node count: {matrix0.shape[0]}; it should be {self.node_number}")
         self.matrix0 = scipy.sparse.csr_matrix(matrix0)
-        print(f"| Got matrix0.shape({self.matrix0.shape}) ... |")
+        print(f"| Got matrix0.shape(`{self.matrix0.shape}`) ... |")
 
-    def _load_matrix0(self, smat_file):
+    def _load_csr_mat(self, smat_file):
         """
         just load CSR matrix file
         """
         self.matrix0 = scipy.sparse.load_npz(smat_file)
         self.node_number = self.matrix0.shape[0]
+
+    def train(self, dimension, step=10, theta=0.5, mu=0.2,
+              emb_file1=None, emb_file2=None, smat_file=None):
+        """ ProNE training
+        dimension: embedding dimension
+        step: iteration times
+        theta: params of chebyshev_gaussian
+        mu: params of chebyshev_gaussian
+        emb_file1: embedding_file1 got by factorization
+        emb_file2: embedding_file2 got by chebyshev_gaussian
+        """
+        self.dimension = dimension
+        with cost("| First factorization |"):
+            features_matrix = self.pre_factorization(self.matrix0, self.matrix0)
+            if isinstance(emb_file1, str):
+                save_embedding(emb_file1, features_matrix)
+        with cost("| Final chebyshev_gaussian; |"):
+            embeddings_matrix = self.chebyshev_gaussian(
+                                        A=self.matrix0,
+                                        a=features_matrix,
+                                        order=step,
+                                        mu=mu,
+                                        s=theta)
+            if isinstance(emb_file2, str):
+                save_embedding(emb_file2, embeddings_matrix)
+        if isinstance(smat_file, str):
+            save_smat(smat_file, self.matrix0)
+        return features_matrix, embeddings_matrix
 
     def get_embedding_rand(self, matrix):
         """ Sparse randomized tSVD for fast embedding """
@@ -179,11 +217,11 @@ class ProNE():
         if order == 1:
             return a
 
-        A = sp.eye(self.node_number) + A
+        A = scipy.sparse.eye(self.node_number) + A
         DA = preprocessing.normalize(A, norm='l1')
-        L = sp.eye(self.node_number) - DA
+        L = scipy.sparse.eye(self.node_number) - DA
 
-        M = L - mu * sp.eye(self.node_number)
+        M = L - mu * scipy.sparse.eye(self.node_number)
 
         Lx0 = a
         Lx1 = M.dot(a)
@@ -209,6 +247,7 @@ class ProNE():
 
 def save_embedding(emb_file, features):
     """ save node embedding into `emb_file` with word2vec format """
+    _check_path(emb_file)
     with open(emb_file, 'w') as f_emb:
         f_emb.write(str(len(features)) + " " + str(features.shape[1]) + "\n")
         for i in range(len(features)):
@@ -218,53 +257,45 @@ def save_embedding(emb_file, features):
 
 def save_smat(smat_file, smat):
     """ save Adjacency into sparse matrix """
+    _check_path(smat_file)
     try:
         scipy.sparse.save_npz(smat_file, smat)
     except Exception as e:
         print(Exception(f"Save CSR matrix0 ERROR: {e}"))
 
 
-def run(graph_file, emb_file1, emb_file2, smat_file=None, node_num=None,
-        dim=100, step=10, theta=0.5, mu=0.2):
-    """
-    graph_file: bi-graph file, saved adjacency like: 'node_i node_j\nnode_i node_k'
-    emb_file1: embedding_file1 got by factorization
-    emb_file2: embedding_file2 got by chebyshev_gaussian
-    smat_file: sparse matrix file
-    dim: ProNE embedding dimension
-    step: iteration times
-    theta: params of chebyshev_gaussian
-    mu: params of chebyshev_gaussian
-    """
+def _check_path(file_name):
+    if file_name is None:
+        return
+    path, _ = os.path.split(file_name)
+    if path == '':
+        return
+    if not os.path.isdir(path):
+        os.makedirs(path)
 
-    def _check_path(fname):
-        if fname is None:
-            return
-        path, _ = os.path.split(fname)
-        if path == '':
-            return
-        if not os.path.isdir(path):
-            os.makedirs(path)
 
-    # check whether matrix file root has been created
-    _check_path(emb_file1)
-    _check_path(emb_file2)
-    _check_path(smat_file)
+# def run(graph_file, emb_file1, emb_file2, smat_file=None, node_num=None,
+#         dim=100, step=10, theta=0.5, mu=0.2):
 
-    with cost("| Create ProNE model |"):
-        model = ProNE(graph_file, dim, node_number=node_num)
-        if smat_file is not None:
-            save_smat(smat_file, model.matrix0)
+#     # check whether matrix file root has been created
+#     _check_path(emb_file1)
+#     _check_path(emb_file2)
+#     _check_path(smat_file)
 
-    with cost("| First factorization |"):
-        features_matrix = model.pre_factorization(model.matrix0, model.matrix0)
-        save_embedding(emb_file1, features_matrix)
+#     with cost("| Create ProNE model |"):
+#         model = ProNE(graph_file, dim, node_number=node_num)
+#         if smat_file is not None:
+#             save_smat(smat_file, model.matrix0)
 
-    with cost("| Final chebyshev_gaussian; |"):
-        embeddings_matrix = model.chebyshev_gaussian(
-                                        A=model.matrix0,
-                                        a=features_matrix,
-                                        order=step,
-                                        mu=mu,
-                                        s=theta)
-        save_embedding(emb_file2, embeddings_matrix)
+#     with cost("| First factorization |"):
+#         features_matrix = model.pre_factorization(model.matrix0, model.matrix0)
+#         save_embedding(emb_file1, features_matrix)
+
+#     with cost("| Final chebyshev_gaussian; |"):
+#         embeddings_matrix = model.chebyshev_gaussian(
+#                                         A=model.matrix0,
+#                                         a=features_matrix,
+#                                         order=step,
+#                                         mu=mu,
+#                                         s=theta)
+#         save_embedding(emb_file2, embeddings_matrix)

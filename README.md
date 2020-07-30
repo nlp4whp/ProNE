@@ -133,3 +133,52 @@ python -c "from ProNE import ProNE;help(ProNE)"
 cd test
 python test_prone.py
 ```
+
+## Usage
+  - Tutorial:
+
+    1. Build model by:
+        ``` python
+        from ProNE import ProNE
+        model = ProNE(graph_or_csr_file, node_number=None)
+            """
+            :graph_or_csr_file: graph file, now we support three types of graph:
+                    1. graph.txt    '1 2\n1 3\n2 3'
+                    2. graph.txt    '1 2 3\n2 3'
+                    3. graph.npz
+            :node_number:       node count of graph, if None, model will get it by:
+                    scan .txt file to get `max_node_num - min_node_num + 1`
+                    get matrix0.shape[0] from .npz file
+            """
+        # BTW: you can save it by:
+        from ProNE import save_smat
+        save_smat(csr_file, model.matrix0)
+        ```
+    2. Train model by:
+        ``` python
+        emb1, emb2 = model.train(dimension,
+                                 step=10,
+                                 theta=0.5,
+                                 mu=0.2,
+                                 emb_file1=None,
+                                 emb_file2=None,
+                                 smat_file=None)
+            """
+            :dimension: embedding dimension
+            :step:      iteration times
+            :theta:     params of chebyshev_gaussian
+            :mu:        params of chebyshev_gaussian
+            :emb_file1: if None, emb1 (by RSVD) will not be saved
+            :emb_file2: if None, emb2 (by chebyshev) will not be saved
+            :smat_file: if None, CSR (model.matrix0) will not be saved
+            """
+        # BTW: you can also save emb1 and emb2 by:
+        from ProNE import save_embedding
+        save_embedding(emb_file1, emb1)
+        save_embedding(emb_file2, emb1)
+        ```
+    3. Note:
+        you can also load graph from CSR sparse matrix file, CSR file must has suffix `.npz`, like:
+        ``` python
+        model = ProNE('smat.npz', dimension, node_number=None)
+        ```
